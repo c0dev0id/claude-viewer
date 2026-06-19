@@ -46,11 +46,20 @@ function buildTurnEl(turn) {
 
   if (turn.userText) {
     const bubble = document.createElement('div');
-    bubble.className = 'bubble bubble-user';
+    bubble.className = turn.isCommand ? 'bubble bubble-user bubble-cmd' : 'bubble bubble-user';
     const p = document.createElement('p');
     p.textContent = turn.userText;
     bubble.appendChild(p);
     el.appendChild(bubble);
+  }
+
+  if (turn.commandResponse) {
+    const resp = document.createElement('div');
+    resp.className = 'bubble bubble-cmd-response';
+    const p = document.createElement('p');
+    p.textContent = turn.commandResponse;
+    resp.appendChild(p);
+    el.appendChild(resp);
   }
 
   if (turn.metaItems.length > 0) {

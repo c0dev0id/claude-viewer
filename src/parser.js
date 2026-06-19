@@ -14,8 +14,11 @@ function readRange(input) {
   return ` ${start}:${end}`;
 }
 
+function stripAnsi(str) {
+  return str.replace(/\x1b\[[0-9;]*[mGKHFABCDJ]/g, '');
+}
+
 // Returns { label, detail, _appendResult? } or null for Agent (handled separately).
-// detail=null means non-expandable; result will fill it during stitching if _appendResult is falsy.
 function formatToolMeta(block) {
   const name = block.name ?? 'tool';
   const inp = block.input ?? {};
@@ -73,7 +76,6 @@ function formatToolMeta(block) {
 }
 
 function extractUserText(content) {
-  if (typeof content === 'string') return content.trim() || null;
   if (!Array.isArray(content)) return null;
   return content
     .filter(b => b?.type === 'text')
@@ -106,6 +108,7 @@ export function parseJSONL(rawText) {
   const turns = [];
   let current = null;
   const toolResultMap = {};
+  let afterCommandEvent = false;
 
   function pushCurrent() {
     if (current) turns.push(current);
@@ -114,7 +117,7 @@ export function parseJSONL(rawText) {
 
   function ensureCurrent() {
     if (!current) {
-      current = { id: `turn-${turns.length}`, userText: null, metaItems: [], assistantText: null };
+      current = { id: `turn-${turns.length}`, userText: null, isCommand: false, commandResponse: null, metaItems: [], assistantText: null };
     }
   }
 
@@ -122,8 +125,8 @@ export function parseJSONL(rawText) {
     switch (ev?.type) {
       case 'user': {
         const content = ev.message?.content;
-        const userText = extractUserText(content);
 
+        // Always collect tool results for stitching
         for (const tr of extractToolResults(content)) {
           if (tr.tool_use_id) {
             toolResultMap[tr.tool_use_id] =
@@ -131,14 +134,64 @@ export function parseJSONL(rawText) {
           }
         }
 
-        if (userText) {
-          pushCurrent();
-          current = { id: `turn-${turns.length}`, userText, metaItems: [], assistantText: null };
+        if (typeof content === 'string') {
+          // Caveat-only: skip silently (don't change afterCommandEvent)
+          if (!content.includes('<command-name>') &&
+              !content.includes('<local-command-stdout>') &&
+              content.includes('<local-command-caveat>')) {
+            break;
+          }
+
+          const cmdMatch = content.match(/<command-name>([\s\S]*?)<\/command-name>/);
+          const stdoutMatch = content.match(/<local-command-stdout>([\s\S]*?)<\/local-command-stdout>/);
+
+          if (cmdMatch) {
+            // Slash command invocation: /effort xhigh, /init, /exit, etc.
+            afterCommandEvent = true;
+            const cmdArgsMatch = content.match(/<command-args>([\s\S]*?)<\/command-args>/);
+            const cmd = cmdMatch[1].trim();
+            const args = cmdArgsMatch ? cmdArgsMatch[1].trim() : '';
+            const prompt = args ? `${cmd} ${args}` : cmd;
+            pushCurrent();
+            current = { id: `turn-${turns.length}`, userText: prompt, isCommand: true, commandResponse: null, metaItems: [], assistantText: null };
+          } else if (stdoutMatch) {
+            // Local command response (e.g. "Bye!", "Set effort level to...")
+            afterCommandEvent = false;
+            const stdout = stripAnsi(stdoutMatch[1].trim());
+            if (stdout) {
+              const target = current ?? (turns.length > 0 ? turns[turns.length - 1] : null);
+              if (target) target.commandResponse = stdout;
+            }
+          } else {
+            // Regular string user text (strip any embedded caveats)
+            afterCommandEvent = false;
+            const cleaned = content
+              .replace(/<local-command-caveat>[\s\S]*?<\/local-command-caveat>/g, '')
+              .trim();
+            if (cleaned) {
+              pushCurrent();
+              current = { id: `turn-${turns.length}`, userText: cleaned, isCommand: false, commandResponse: null, metaItems: [], assistantText: null };
+            }
+          }
+        } else {
+          // Array content
+          if (afterCommandEvent) {
+            // Immediately follows a command event: injected skill instructions — skip
+            afterCommandEvent = false;
+            break;
+          }
+          afterCommandEvent = false;
+          const userText = extractUserText(content);
+          if (userText) {
+            pushCurrent();
+            current = { id: `turn-${turns.length}`, userText, isCommand: false, commandResponse: null, metaItems: [], assistantText: null };
+          }
         }
         break;
       }
 
       case 'assistant': {
+        afterCommandEvent = false;
         ensureCurrent();
         const agentBlocks = [];
 
@@ -180,11 +233,9 @@ export function parseJSONL(rawText) {
           const name = a.hookName ?? a.hookEvent ?? a.type;
           current.metaItems.push({ kind: 'hook', label: `Executing ${name} hook`, detail: null });
         }
-        // All other attachment types (file snapshots, deferred tools, etc.): skip
         break;
       }
 
-      // system, permission-mode, and all other top-level event types: skip
       default:
         break;
     }
