@@ -1,12 +1,85 @@
+function trunc(str, max) {
+  if (!str) return '';
+  return str.length > max ? str.slice(0, max - 1) + '\u2026' : str;
+}
+
+function basename(fp) {
+  return (fp ?? '').split('/').pop() || fp;
+}
+
+function readRange(input) {
+  if (input.offset == null) return '';
+  const start = input.offset;
+  const end = input.limit != null ? start + input.limit : '\u2026';
+  return ` ${start}:${end}`;
+}
+
+// Returns { label, detail, _appendResult? } or null for Agent (handled separately).
+// detail=null means non-expandable; result will fill it during stitching if _appendResult is falsy.
+function formatToolMeta(block) {
+  const name = block.name ?? 'tool';
+  const inp = block.input ?? {};
+
+  switch (name) {
+    case 'Bash':
+      return {
+        label: `bash: ${trunc(inp.command ?? '', 100)}`,
+        detail: `$ ${inp.command ?? ''}`,
+        _appendResult: true,
+      };
+
+    case 'Read':
+      return {
+        label: `read: ${basename(inp.file_path)}${readRange(inp)}`,
+        detail: null,
+      };
+
+    case 'Write':
+      return {
+        label: `write: ${basename(inp.file_path ?? '')}`,
+        detail: inp.content ?? '',
+      };
+
+    case 'Edit':
+      return {
+        label: `edit: ${basename(inp.file_path ?? '')}`,
+        detail: `--- old\n${inp.old_string ?? ''}\n+++ new\n${inp.new_string ?? ''}`,
+      };
+
+    case 'Glob':
+      return { label: `glob: ${trunc(inp.pattern ?? '', 80)}`, detail: null };
+
+    case 'Grep':
+      return { label: `grep: ${trunc(inp.pattern ?? '', 80)}`, detail: null };
+
+    case 'Skill':
+      return { label: `Executing ${inp.skill ?? name} skill`, detail: null };
+
+    case 'WebFetch':
+      return { label: `fetch: ${trunc(inp.url ?? '', 80)}`, detail: null };
+
+    case 'WebSearch':
+      return { label: `search: ${trunc(inp.query ?? '', 80)}`, detail: null };
+
+    case 'Agent':
+      return null;
+
+    default: {
+      const firstVal = Object.values(inp)[0];
+      const hint = firstVal != null ? ` ${trunc(String(firstVal), 60)}` : '';
+      return { label: `${name.toLowerCase()}:${hint}`, detail: null };
+    }
+  }
+}
+
 function extractUserText(content) {
   if (typeof content === 'string') return content.trim() || null;
   if (!Array.isArray(content)) return null;
-  const parts = content
+  return content
     .filter(b => b?.type === 'text')
     .map(b => b.text ?? '')
     .join('\n')
-    .trim();
-  return parts || null;
+    .trim() || null;
 }
 
 function extractToolResults(content) {
@@ -14,13 +87,9 @@ function extractToolResults(content) {
   return content.filter(b => b?.type === 'tool_result');
 }
 
-function toolUseLabel(block) {
-  const name = block.name ?? 'tool';
-  const input = block.input ?? {};
-  const val = Object.values(input)[0];
-  const hint = val !== undefined ? String(val).slice(0, 60) : '';
-  return `\u{1F527} ${name}${hint ? ' ' + hint : ''}`;
-}
+const HOOK_TYPES = new Set([
+  'hook_success', 'hook_additional_context', 'hook_failure', 'stop_hook_result',
+]);
 
 export function parseJSONL(rawText) {
   const events = [];
@@ -54,12 +123,11 @@ export function parseJSONL(rawText) {
       case 'user': {
         const content = ev.message?.content;
         const userText = extractUserText(content);
-        const toolResults = extractToolResults(content);
 
-        for (const tr of toolResults) {
+        for (const tr of extractToolResults(content)) {
           if (tr.tool_use_id) {
-            const txt = typeof tr.content === 'string' ? tr.content : JSON.stringify(tr.content ?? '');
-            toolResultMap[tr.tool_use_id] = txt;
+            toolResultMap[tr.tool_use_id] =
+              typeof tr.content === 'string' ? tr.content : JSON.stringify(tr.content ?? '');
           }
         }
 
@@ -72,56 +140,82 @@ export function parseJSONL(rawText) {
 
       case 'assistant': {
         ensureCurrent();
+        const agentBlocks = [];
+
         for (const block of ev.message?.content ?? []) {
           if (block?.type === 'text') {
             current.assistantText = (current.assistantText ?? '') + block.text;
           } else if (block?.type === 'tool_use') {
-            current.metaItems.push({
-              kind: 'tool_use',
-              label: toolUseLabel(block),
-              detail: JSON.stringify(block.input ?? {}, null, 2),
-              _toolUseId: block.id,
-            });
-          } else if (block?.type === 'thinking') {
-            const len = (block.thinking ?? '').length;
-            current.metaItems.push({
-              kind: 'thinking',
-              label: `\u{1F4AD} Thinking (${len} chars)`,
-              detail: block.thinking ?? '',
-            });
+            if (block.name === 'Agent') {
+              agentBlocks.push(block);
+            } else {
+              const fmt = formatToolMeta(block);
+              if (fmt) {
+                current.metaItems.push({ kind: 'tool_use', ...fmt, _toolUseId: block.id });
+              }
+            }
           }
+          // thinking: skip
+        }
+
+        if (agentBlocks.length > 0) {
+          current.metaItems.push({
+            kind: 'agents',
+            label: agentBlocks.length === 1 ? 'Agent started' : `Agents started (${agentBlocks.length})`,
+            detail: null,
+            _agentBlocks: agentBlocks.map(b => ({
+              id: b.id,
+              description: b.input?.description ?? '',
+              subagent_type: b.input?.subagent_type ?? '',
+            })),
+          });
         }
         break;
       }
 
       case 'attachment': {
-        ensureCurrent();
         const a = ev.attachment ?? {};
-        const label = `\u{1F4CE} ${a.type ?? 'attachment'}${a.hookName ? ' \u00B7 ' + a.hookName : ''}`;
-        const detail = a.content ?? a.stdout ?? JSON.stringify(a, null, 2);
-        current.metaItems.push({ kind: 'attachment', label, detail });
+        if (HOOK_TYPES.has(a.type)) {
+          ensureCurrent();
+          const name = a.hookName ?? a.hookEvent ?? a.type;
+          current.metaItems.push({ kind: 'hook', label: `Executing ${name} hook`, detail: null });
+        }
+        // All other attachment types (file snapshots, deferred tools, etc.): skip
         break;
       }
 
-      case 'system': {
-        ensureCurrent();
-        const label = `\u2699\uFE0F system${ev.subtype ? ': ' + ev.subtype : ''}`;
-        current.metaItems.push({ kind: 'system', label, detail: JSON.stringify(ev, null, 2) });
-        break;
-      }
-
+      // system, permission-mode, and all other top-level event types: skip
       default:
         break;
     }
   }
   pushCurrent();
 
-  // Stitch tool results onto their originating tool_use MetaItems
+  // Stitch tool results
   for (const turn of turns) {
     for (const meta of turn.metaItems) {
       if (meta.kind === 'tool_use' && meta._toolUseId) {
-        meta.toolResultText = toolResultMap[meta._toolUseId];
+        const result = toolResultMap[meta._toolUseId] ?? '';
+        if (meta._appendResult) {
+          if (result) meta.detail += '\n\n' + result;
+          delete meta._appendResult;
+        } else if (meta.detail === null) {
+          meta.detail = result || null;
+        }
         delete meta._toolUseId;
+      }
+
+      if (meta.kind === 'agents' && meta._agentBlocks) {
+        const lines = meta._agentBlocks.map(agent => {
+          const result = toolResultMap[agent.id] ?? '';
+          const type = agent.subagent_type || 'Agent';
+          const desc = trunc(agent.description, 80);
+          const chars = result.length;
+          const size = chars >= 1000 ? `${Math.round(chars / 1000)}k chars` : `${chars} chars`;
+          return `${type}: ${desc}\n${size}`;
+        }).join('\n\n');
+        meta.detail = lines || null;
+        delete meta._agentBlocks;
       }
     }
   }

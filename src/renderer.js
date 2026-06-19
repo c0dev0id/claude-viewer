@@ -8,6 +8,16 @@ function buildPillEl(meta) {
   const wrapper = document.createElement('div');
   wrapper.className = 'pill-wrapper';
 
+  const hasDetail = meta.detail != null && String(meta.detail).trim().length > 0;
+
+  if (!hasDetail) {
+    const span = document.createElement('span');
+    span.className = 'pill pill-static';
+    span.textContent = meta.label;
+    wrapper.appendChild(span);
+    return wrapper;
+  }
+
   const btn = document.createElement('button');
   btn.className = 'pill';
   btn.textContent = meta.label;
@@ -16,12 +26,7 @@ function buildPillEl(meta) {
   const detail = document.createElement('pre');
   detail.className = 'pill-detail';
   detail.hidden = true;
-
-  let detailContent = meta.detail ?? '';
-  if (meta.toolResultText) {
-    detailContent += '\n\n\u2500\u2500 result \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n' + meta.toolResultText;
-  }
-  detail.textContent = detailContent;
+  detail.textContent = meta.detail;
 
   btn.addEventListener('click', () => {
     const willExpand = detail.hidden;
