@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Claude Session Viewer</title>
+  <style>
+    :root {
+      --bg: #0d0d0d;
+      --surface: #1a1a1a;
+      --surface-user: #1e1e2e;
+      --text: #e0e0e0;
+      --text-muted: #888;
+      --accent: #7c6af7;
+      --border: #2a2a2a;
+      --pill-bg: #222;
+      --pill-hover: #2d2d2d;
+      --code-bg: #0a0a0a;
+      --mark-bg: rgba(124, 106, 247, 0.35);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 14px;
+      line-height: 1.6;
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Header ─────────────────────────────────── */
+    #header {
+      flex-shrink: 0;
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      padding: 10px 16px;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    #upload-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      cursor: pointer;
+      white-space: nowrap;
+      font-size: 13px;
+      color: var(--text);
+      transition: border-color 0.15s;
+      user-select: none;
+    }
+    #upload-label:hover { border-color: var(--accent); }
+    #file-input { display: none; }
+
+    #search-input {
+      flex: 1;
+      padding: 6px 12px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    #search-input:focus { border-color: var(--accent); }
+    #search-input::placeholder { color: var(--text-muted); }
+
+    #db-warning {
+      flex-shrink: 0;
+      background: #2a1a00;
+      color: #f5c96a;
+      font-size: 12px;
+      padding: 5px 16px;
+      text-align: center;
+    }
+
+    /* ── Chat ───────────────────────────────────── */
+    #chat-container {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px 16px 48px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .turn {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-width: 860px;
+      width: 100%;
+      margin: 0 auto;
+    }
+
+    .bubble {
+      max-width: 78%;
+      padding: 10px 14px;
+      border-radius: 14px;
+      word-break: break-word;
+      overflow-wrap: break-word;
+    }
+
+    .bubble-user {
+      align-self: flex-end;
+      background: var(--surface-user);
+      border: 1px solid #2a2a4a;
+      border-bottom-right-radius: 4px;
+      white-space: pre-wrap;
+    }
+
+    .bubble-assistant {
+      align-self: flex-start;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-bottom-left-radius: 4px;
+    }
+
+    /* Markdown content inside assistant bubble */
+    .bubble-assistant > *:first-child { margin-top: 0; }
+    .bubble-assistant > *:last-child { margin-bottom: 0; }
+    .bubble-assistant p { margin: 0.4em 0; }
+    .bubble-assistant h1, .bubble-assistant h2, .bubble-assistant h3,
+    .bubble-assistant h4, .bubble-assistant h5, .bubble-assistant h6 {
+      font-size: 1em;
+      font-weight: 600;
+      margin: 0.7em 0 0.3em;
+    }
+    .bubble-assistant ul, .bubble-assistant ol {
+      padding-left: 1.5em;
+      margin: 0.4em 0;
+    }
+    .bubble-assistant li { margin: 0.15em 0; }
+    .bubble-assistant code {
+      font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
+      font-size: 12px;
+      background: var(--code-bg);
+      padding: 1px 5px;
+      border-radius: 3px;
+    }
+    .bubble-assistant pre {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px 12px;
+      overflow-x: auto;
+      margin: 0.5em 0;
+    }
+    .bubble-assistant pre code {
+      background: none;
+      padding: 0;
+      font-size: 12px;
+    }
+    .bubble-assistant table {
+      border-collapse: collapse;
+      font-size: 12px;
+      margin: 0.5em 0;
+      max-width: 100%;
+      overflow-x: auto;
+      display: block;
+    }
+    .bubble-assistant th, .bubble-assistant td {
+      border: 1px solid var(--border);
+      padding: 4px 10px;
+      text-align: left;
+    }
+    .bubble-assistant th { background: var(--code-bg); font-weight: 600; }
+    .bubble-assistant blockquote {
+      border-left: 3px solid var(--accent);
+      padding-left: 10px;
+      color: var(--text-muted);
+      margin: 0.4em 0;
+    }
+    .bubble-assistant hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 0.6em 0;
+    }
+    .bubble-assistant a { color: var(--accent); }
+
+    /* ── Pills ──────────────────────────────────── */
+    .pills-row {
+      max-width: 860px;
+      width: 100%;
+      margin: 0 auto;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      padding: 0 2px;
+    }
+
+    .pill-wrapper {
+      display: inline-flex;
+      flex-direction: column;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 10px;
+      background: var(--pill-bg);
+      border: 1px solid var(--border);
+      border-radius: 99px;
+      color: var(--text-muted);
+      font-size: 11px;
+      cursor: pointer;
+      font-family: inherit;
+      transition: background 0.1s, color 0.1s;
+      text-align: left;
+    }
+    .pill:hover { background: var(--pill-hover); color: var(--text); }
+    .pill[aria-expanded="true"] {
+      border-radius: 6px 6px 0 0;
+    }
+
+    .pill-detail {
+      max-width: 600px;
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-top: none;
+      border-radius: 0 4px 4px 4px;
+      padding: 8px 10px;
+      font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+      font-size: 11px;
+      color: #aaa;
+      white-space: pre-wrap;
+      overflow-x: auto;
+      max-height: 320px;
+      overflow-y: auto;
+      word-break: break-all;
+    }
+
+    /* ── Search overlay ─────────────────────────── */
+    #search-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.72);
+      z-index: 100;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 72px 16px 16px;
+    }
+
+    .search-panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      width: 100%;
+      max-width: 620px;
+      max-height: calc(100dvh - 120px);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+    }
+
+    .search-results {
+      overflow-y: auto;
+      padding: 4px 0;
+    }
+
+    .search-result {
+      padding: 10px 16px;
+      cursor: pointer;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      outline: none;
+    }
+    .search-result:last-child { border-bottom: none; }
+    .search-result:hover, .search-result:focus { background: #252525; }
+
+    .result-side {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--accent);
+    }
+
+    .result-excerpt {
+      font-size: 12px;
+      color: var(--text-muted);
+      word-break: break-word;
+      line-height: 1.5;
+    }
+
+    .no-results {
+      padding: 20px 16px;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 13px;
+    }
+
+    mark {
+      background: var(--mark-bg);
+      color: var(--text);
+      border-radius: 2px;
+      padding: 0 2px;
+    }
+
+    /* ── Empty state ────────────────────────────── */
+    #empty-state {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      color: var(--text-muted);
+      pointer-events: none;
+    }
+    #empty-state svg { opacity: 0.3; }
+    #empty-state p { font-size: 13px; }
+  </style>
+</head>
+<body>
+
+<header id="header">
+  <label id="upload-label" for="file-input">
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8">
+      <path d="M8 11V3M4 6l4-4 4 4"/>
+      <path d="M2 13h12"/>
+    </svg>
+    Open .jsonl
+  </label>
+  <input type="file" id="file-input" accept=".jsonl">
+  <input type="text" id="search-input" placeholder="Search session…" autocomplete="off" spellcheck="false">
+</header>
+
+<div id="db-warning" hidden>
+  IndexedDB unavailable — session will not persist across page refreshes.
+</div>
+
+<main id="chat-container">
+  <div id="empty-state">
+    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
+      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+      <polyline points="14 2 14 8 20 8"/>
+      <line x1="16" y1="13" x2="8" y2="13"/>
+      <line x1="16" y1="17" x2="8" y2="17"/>
+      <polyline points="10 9 9 9 8 9"/>
+    </svg>
+    <p>Open a Claude <code>.jsonl</code> session file to begin</p>
+  </div>
+</main>
+
+<div id="search-overlay" hidden>
+  <div class="search-panel">
+    <div class="search-results"></div>
+  </div>
+</div>
+
+<script src="vendor/marked.min.js"></script>
+<script type="module" src="src/app.js"></script>
+</body>
+</html>
