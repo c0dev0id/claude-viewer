@@ -197,6 +197,8 @@ export function parseJSONL(rawText) {
           }
           afterCommandEvent = false;
           const userText = extractUserText(content);
+          // Skip CLI-injected status messages
+          if (userText && /^\[Request interrupted by user.*\]$/.test(userText.trim())) break;
           if (userText) {
             pushCurrent();
             current = { id: `turn-${turns.length}`, userText, isCommand: false, isCompaction: false, compactionSummary: null, commandResponse: null, metaItems: [], assistantText: null };
