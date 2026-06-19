@@ -136,6 +136,8 @@ export function parseJSONL(rawText) {
 
         if (typeof content === 'string') {
           // Caveat-only: skip silently (don't change afterCommandEvent)
+          // Skip caveat-only and compaction summary messages
+          if (content.includes('previous conversation that ran out of context')) break;
           if (!content.includes('<command-name>') &&
               !content.includes('<local-command-stdout>') &&
               content.includes('<local-command-caveat>')) {
