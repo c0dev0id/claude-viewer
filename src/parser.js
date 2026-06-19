@@ -117,7 +117,7 @@ export function parseJSONL(rawText) {
 
   function ensureCurrent() {
     if (!current) {
-      current = { id: `turn-${turns.length}`, userText: null, isCommand: false, isCompaction: false, compactionSummary: null, commandResponse: null, metaItems: [], assistantText: null };
+      current = { id: `turn-${turns.length}`, userText: null, isCommand: false, isCompaction: false, compactionSummary: null, commandResponse: null, segments: [] };
     }
   }
 
@@ -146,7 +146,7 @@ export function parseJSONL(rawText) {
           // Compaction summary injected by the CLI
           if (content.includes('previous conversation that ran out of context')) {
             pushCurrent();
-            current = { id: `turn-${turns.length}`, isCompaction: true, compactionSummary: content.trim(), userText: null, isCommand: false, commandResponse: null, metaItems: [], assistantText: null };
+            current = { id: `turn-${turns.length}`, isCompaction: true, compactionSummary: content.trim(), userText: null, isCommand: false, commandResponse: null, segments: [] };
             break;
           }
 
@@ -161,13 +161,13 @@ export function parseJSONL(rawText) {
             if (cmd === '/compact') {
               // Manual compaction: create a divider turn, discard following stdout
               pushCurrent();
-              current = { id: `turn-${turns.length}`, isCompaction: true, compactionSummary: null, userText: null, isCommand: false, commandResponse: null, metaItems: [], assistantText: null };
+              current = { id: `turn-${turns.length}`, isCompaction: true, compactionSummary: null, userText: null, isCommand: false, commandResponse: null, segments: [] };
             } else {
               // Regular slash command invocation: /effort xhigh, /init, /exit, etc.
               afterCommandEvent = true;
               const prompt = args ? `${cmd} ${args}` : cmd;
               pushCurrent();
-              current = { id: `turn-${turns.length}`, userText: prompt, isCommand: true, isCompaction: false, compactionSummary: null, commandResponse: null, metaItems: [], assistantText: null };
+              current = { id: `turn-${turns.length}`, userText: prompt, isCommand: true, isCompaction: false, compactionSummary: null, commandResponse: null, segments: [] };
             }
           } else if (stdoutMatch) {
             // Local command response — skip if it belongs to a compaction turn
@@ -185,7 +185,7 @@ export function parseJSONL(rawText) {
               .trim();
             if (cleaned) {
               pushCurrent();
-              current = { id: `turn-${turns.length}`, userText: cleaned, isCommand: false, isCompaction: false, compactionSummary: null, commandResponse: null, metaItems: [], assistantText: null };
+              current = { id: `turn-${turns.length}`, userText: cleaned, isCommand: false, isCompaction: false, compactionSummary: null, commandResponse: null, segments: [] };
             }
           }
         } else {
@@ -201,7 +201,7 @@ export function parseJSONL(rawText) {
           if (userText && /^\[Request interrupted by user.*\]$/.test(userText.trim())) break;
           if (userText) {
             pushCurrent();
-            current = { id: `turn-${turns.length}`, userText, isCommand: false, isCompaction: false, compactionSummary: null, commandResponse: null, metaItems: [], assistantText: null };
+            current = { id: `turn-${turns.length}`, userText, isCommand: false, isCompaction: false, compactionSummary: null, commandResponse: null, segments: [] };
           }
         }
         break;
@@ -214,14 +214,21 @@ export function parseJSONL(rawText) {
 
         for (const block of ev.message?.content ?? []) {
           if (block?.type === 'text') {
-            current.assistantText = (current.assistantText ?? '') + block.text;
+            const text = block.text ?? '';
+            if (!text) continue;
+            const last = current.segments[current.segments.length - 1];
+            if (last?.type === 'text') {
+              last.content += text;
+            } else {
+              current.segments.push({ type: 'text', content: text });
+            }
           } else if (block?.type === 'tool_use') {
             if (block.name === 'Agent') {
               agentBlocks.push(block);
             } else {
               const fmt = formatToolMeta(block);
               if (fmt) {
-                current.metaItems.push({ kind: 'tool_use', ...fmt, _toolUseId: block.id });
+                current.segments.push({ type: 'meta', meta: { kind: 'tool_use', ...fmt, _toolUseId: block.id } });
               }
             }
           }
@@ -229,15 +236,18 @@ export function parseJSONL(rawText) {
         }
 
         if (agentBlocks.length > 0) {
-          current.metaItems.push({
-            kind: 'agents',
-            label: agentBlocks.length === 1 ? 'Agent started' : `Agents started (${agentBlocks.length})`,
-            detail: null,
-            _agentBlocks: agentBlocks.map(b => ({
-              id: b.id,
-              description: b.input?.description ?? '',
-              subagent_type: b.input?.subagent_type ?? '',
-            })),
+          current.segments.push({
+            type: 'meta',
+            meta: {
+              kind: 'agents',
+              label: agentBlocks.length === 1 ? 'Agent started' : `Agents started (${agentBlocks.length})`,
+              detail: null,
+              _agentBlocks: agentBlocks.map(b => ({
+                id: b.id,
+                description: b.input?.description ?? '',
+                subagent_type: b.input?.subagent_type ?? '',
+              })),
+            },
           });
         }
         break;
@@ -248,7 +258,7 @@ export function parseJSONL(rawText) {
         if (HOOK_TYPES.has(a.type)) {
           ensureCurrent();
           const name = a.hookName ?? a.hookEvent ?? a.type;
-          current.metaItems.push({ kind: 'hook', label: `Executing ${name} hook`, detail: null });
+          current.segments.push({ type: 'meta', meta: { kind: 'hook', label: `Executing ${name} hook`, detail: null } });
         }
         break;
       }
@@ -261,7 +271,10 @@ export function parseJSONL(rawText) {
 
   // Stitch tool results
   for (const turn of turns) {
-    for (const meta of turn.metaItems) {
+    for (const seg of turn.segments) {
+      if (seg.type !== 'meta') continue;
+      const meta = seg.meta;
+
       if (meta.kind === 'tool_use' && meta._toolUseId) {
         const result = toolResultMap[meta._toolUseId] ?? '';
         if (meta._appendResult) {

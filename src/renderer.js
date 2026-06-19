@@ -103,20 +103,18 @@ function buildTurnEl(turn) {
     el.appendChild(resp);
   }
 
-  if (turn.metaItems.length > 0) {
-    const row = document.createElement('div');
-    row.className = 'pills-row';
-    for (const meta of turn.metaItems) {
-      row.appendChild(buildPillEl(meta));
+  for (const seg of turn.segments) {
+    if (seg.type === 'text') {
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble bubble-assistant';
+      bubble.innerHTML = window.marked.parse(seg.content);
+      el.appendChild(bubble);
+    } else if (seg.type === 'meta') {
+      const row = document.createElement('div');
+      row.className = 'pills-row';
+      row.appendChild(buildPillEl(seg.meta));
+      el.appendChild(row);
     }
-    el.appendChild(row);
-  }
-
-  if (turn.assistantText) {
-    const bubble = document.createElement('div');
-    bubble.className = 'bubble bubble-assistant';
-    bubble.innerHTML = window.marked.parse(turn.assistantText);
-    el.appendChild(bubble);
   }
 
   return el;

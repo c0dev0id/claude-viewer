@@ -9,7 +9,11 @@ export function buildIndex(turns) {
   const entries = [];
   for (const turn of turns) {
     if (turn.userText) entries.push({ turnId: turn.id, text: turn.userText, side: 'user' });
-    if (turn.assistantText) entries.push({ turnId: turn.id, text: turn.assistantText, side: 'assistant' });
+    const assistantText = turn.segments
+      .filter(s => s.type === 'text')
+      .map(s => s.content)
+      .join('\n');
+    if (assistantText) entries.push({ turnId: turn.id, text: assistantText, side: 'assistant' });
   }
   return { entries };
 }

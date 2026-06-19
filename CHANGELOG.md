@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+- Tool use pills and assistant text bubbles now render in their original
+  event order. Previously all pills appeared above the assistant bubble
+  regardless of where tool calls occurred in the response.
+
 ### Changed (continued)
 - Slash commands (`/effort xhigh`, `/init`, `/exit`, etc.) are now
   parsed from raw XML tags and shown as compact command bubbles.
