@@ -117,7 +117,7 @@ export function parseJSONL(rawText) {
 
   function ensureCurrent() {
     if (!current) {
-      current = { id: `turn-${turns.length}`, userText: null, isCommand: false, commandResponse: null, metaItems: [], assistantText: null };
+      current = { id: `turn-${turns.length}`, userText: null, isCommand: false, isCompaction: false, compactionSummary: null, commandResponse: null, metaItems: [], assistantText: null };
     }
   }
 
@@ -136,11 +136,17 @@ export function parseJSONL(rawText) {
 
         if (typeof content === 'string') {
           // Caveat-only: skip silently (don't change afterCommandEvent)
-          // Skip caveat-only and compaction summary messages
-          if (content.includes('previous conversation that ran out of context')) break;
+          // Caveat-only: skip silently
           if (!content.includes('<command-name>') &&
               !content.includes('<local-command-stdout>') &&
               content.includes('<local-command-caveat>')) {
+            break;
+          }
+
+          // Compaction summary injected by the CLI
+          if (content.includes('previous conversation that ran out of context')) {
+            pushCurrent();
+            current = { id: `turn-${turns.length}`, isCompaction: true, compactionSummary: content.trim(), userText: null, isCommand: false, commandResponse: null, metaItems: [], assistantText: null };
             break;
           }
 
@@ -148,21 +154,28 @@ export function parseJSONL(rawText) {
           const stdoutMatch = content.match(/<local-command-stdout>([\s\S]*?)<\/local-command-stdout>/);
 
           if (cmdMatch) {
-            // Slash command invocation: /effort xhigh, /init, /exit, etc.
-            afterCommandEvent = true;
             const cmdArgsMatch = content.match(/<command-args>([\s\S]*?)<\/command-args>/);
             const cmd = cmdMatch[1].trim();
             const args = cmdArgsMatch ? cmdArgsMatch[1].trim() : '';
-            const prompt = args ? `${cmd} ${args}` : cmd;
-            pushCurrent();
-            current = { id: `turn-${turns.length}`, userText: prompt, isCommand: true, commandResponse: null, metaItems: [], assistantText: null };
+
+            if (cmd === '/compact') {
+              // Manual compaction: create a divider turn, discard following stdout
+              pushCurrent();
+              current = { id: `turn-${turns.length}`, isCompaction: true, compactionSummary: null, userText: null, isCommand: false, commandResponse: null, metaItems: [], assistantText: null };
+            } else {
+              // Regular slash command invocation: /effort xhigh, /init, /exit, etc.
+              afterCommandEvent = true;
+              const prompt = args ? `${cmd} ${args}` : cmd;
+              pushCurrent();
+              current = { id: `turn-${turns.length}`, userText: prompt, isCommand: true, isCompaction: false, compactionSummary: null, commandResponse: null, metaItems: [], assistantText: null };
+            }
           } else if (stdoutMatch) {
-            // Local command response (e.g. "Bye!", "Set effort level to...")
+            // Local command response — skip if it belongs to a compaction turn
             afterCommandEvent = false;
             const stdout = stripAnsi(stdoutMatch[1].trim());
             if (stdout) {
               const target = current ?? (turns.length > 0 ? turns[turns.length - 1] : null);
-              if (target) target.commandResponse = stdout;
+              if (target && !target.isCompaction) target.commandResponse = stdout;
             }
           } else {
             // Regular string user text (strip any embedded caveats)
@@ -172,7 +185,7 @@ export function parseJSONL(rawText) {
               .trim();
             if (cleaned) {
               pushCurrent();
-              current = { id: `turn-${turns.length}`, userText: cleaned, isCommand: false, commandResponse: null, metaItems: [], assistantText: null };
+              current = { id: `turn-${turns.length}`, userText: cleaned, isCommand: false, isCompaction: false, compactionSummary: null, commandResponse: null, metaItems: [], assistantText: null };
             }
           }
         } else {
@@ -186,7 +199,7 @@ export function parseJSONL(rawText) {
           const userText = extractUserText(content);
           if (userText) {
             pushCurrent();
-            current = { id: `turn-${turns.length}`, userText, isCommand: false, commandResponse: null, metaItems: [], assistantText: null };
+            current = { id: `turn-${turns.length}`, userText, isCommand: false, isCompaction: false, compactionSummary: null, commandResponse: null, metaItems: [], assistantText: null };
           }
         }
         break;

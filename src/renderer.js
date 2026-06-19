@@ -39,7 +39,48 @@ function buildPillEl(meta) {
   return wrapper;
 }
 
+function buildCompactionEl(turn) {
+  const el = document.createElement('div');
+  el.className = 'turn compaction-turn';
+  el.id = turn.id;
+
+  const divider = document.createElement('div');
+  divider.className = 'compaction-divider';
+
+  if (turn.compactionSummary) {
+    const btn = document.createElement('button');
+    btn.className = 'compaction-label';
+    btn.textContent = 'Session resumed from compaction';
+    btn.setAttribute('aria-expanded', 'false');
+
+    const detail = document.createElement('pre');
+    detail.className = 'compaction-detail';
+    detail.hidden = true;
+    detail.textContent = turn.compactionSummary;
+
+    btn.addEventListener('click', () => {
+      const expand = detail.hidden;
+      detail.hidden = !expand;
+      btn.setAttribute('aria-expanded', String(expand));
+    });
+
+    divider.appendChild(btn);
+    el.appendChild(divider);
+    el.appendChild(detail);
+  } else {
+    const label = document.createElement('span');
+    label.className = 'compaction-label';
+    label.textContent = 'Session compacted';
+    divider.appendChild(label);
+    el.appendChild(divider);
+  }
+
+  return el;
+}
+
 function buildTurnEl(turn) {
+  if (turn.isCompaction) return buildCompactionEl(turn);
+
   const el = document.createElement('div');
   el.className = 'turn';
   el.id = turn.id;

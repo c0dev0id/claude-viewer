@@ -189,6 +189,58 @@
     }
     .bubble-assistant a { color: var(--accent); }
 
+    /* ── Compaction divider ─────────────────────── */
+    .compaction-turn { width: 100%; }
+
+    .compaction-divider {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 4px 0;
+      max-width: 860px;
+      width: 100%;
+    }
+    .compaction-divider::before, .compaction-divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    .compaction-label {
+      font-size: 11px;
+      color: var(--text-muted);
+      white-space: nowrap;
+      background: none;
+      border: none;
+      font-family: inherit;
+      padding: 0;
+    }
+    button.compaction-label {
+      border: 1px solid var(--border);
+      border-radius: 99px;
+      padding: 2px 10px;
+      cursor: pointer;
+      transition: color 0.1s;
+    }
+    button.compaction-label:hover { color: var(--text); }
+
+    .compaction-detail {
+      max-width: 860px;
+      width: 100%;
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px 12px;
+      font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+      font-size: 11px;
+      color: #aaa;
+      white-space: pre-wrap;
+      overflow-x: auto;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+
     /* ── Command bubbles ────────────────────────── */
     .bubble-cmd {
       font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
