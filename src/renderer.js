@@ -4,6 +4,29 @@ let _container = null;
 let _observer = null;
 const BATCH_SIZE = 100;
 
+// Matches ★ Insight blocks with or without surrounding backticks and newlines.
+// The ─ character is U+2500; require at least 10 of them for the closing line.
+const INSIGHT_RE = /`?★ Insight[\u2500 ]*`?\n?([\s\S]*?)\n?`?[\u2500]{10,}`?/g;
+
+function splitInsights(text) {
+  const parts = [];
+  let lastIndex = 0;
+  INSIGHT_RE.lastIndex = 0;
+  let match;
+  while ((match = INSIGHT_RE.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push({ kind: 'text', content: text.slice(lastIndex, match.index) });
+    }
+    const body = match[1].trim();
+    if (body) parts.push({ kind: 'insight', content: body });
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex < text.length) {
+    parts.push({ kind: 'text', content: text.slice(lastIndex) });
+  }
+  return parts;
+}
+
 function buildPillEl(meta) {
   const wrapper = document.createElement('div');
   wrapper.className = 'pill-wrapper';
@@ -105,10 +128,27 @@ function buildTurnEl(turn) {
 
   for (const seg of turn.segments) {
     if (seg.type === 'text') {
-      const bubble = document.createElement('div');
-      bubble.className = 'bubble bubble-assistant';
-      bubble.innerHTML = window.marked.parse(seg.content);
-      el.appendChild(bubble);
+      for (const part of splitInsights(seg.content)) {
+        if (part.kind === 'insight') {
+          const bubble = document.createElement('div');
+          bubble.className = 'bubble bubble-assistant bubble-insight';
+          const header = document.createElement('div');
+          header.className = 'insight-header';
+          header.textContent = '★ INSIGHT';
+          bubble.appendChild(header);
+          const body = document.createElement('div');
+          body.innerHTML = window.marked.parse(part.content);
+          bubble.appendChild(body);
+          el.appendChild(bubble);
+        } else {
+          const trimmed = part.content.trim();
+          if (!trimmed) continue;
+          const bubble = document.createElement('div');
+          bubble.className = 'bubble bubble-assistant';
+          bubble.innerHTML = window.marked.parse(trimmed);
+          el.appendChild(bubble);
+        }
+      }
     } else if (seg.type === 'meta') {
       const row = document.createElement('div');
       row.className = 'pills-row';

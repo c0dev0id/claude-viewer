@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- Insight blocks (`★ Insight ───…`) from plugin annotations are extracted
+  from assistant text and rendered as a distinct amber-tinted bubble with a
+  small "★ INSIGHT" header. Handles missing newlines around the delimiters.
+
 ### Fixed
 - Tool use pills and assistant text bubbles now render in their original
   event order. Previously all pills appeared above the assistant bubble
