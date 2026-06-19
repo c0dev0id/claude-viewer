@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed (continued)
+- Slash commands (`/effort xhigh`, `/init`, `/exit`, etc.) are now
+  parsed from raw XML tags and shown as compact command bubbles.
+  Local command stdout (e.g. "Set effort level to xhigh: ...") is
+  displayed as a muted response bubble aligned with assistant content.
+- Caveat blocks and injected skill instructions are silently dropped.
+- Tool use pills are now a left-aligned vertical stack, matching the
+  assistant bubble side rather than spanning the full width.
+
 ### Changed
 - Tool use pills now show condensed, tool-specific labels: `bash: <cmd>`,
   `read: file.txt 10:50`, `write: file.txt`, `edit: file.txt`, `glob: <pattern>`,
